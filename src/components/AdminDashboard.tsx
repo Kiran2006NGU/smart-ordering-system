@@ -57,6 +57,7 @@ import {
   FirestoreUserProfile, 
   UserLogRecord 
 } from '../lib/firebase';
+import { getAllRestaurants, TenantRestaurantInfo } from '../lib/tenantFirestore';
 
 interface AdminDashboardProps {
   restaurantInfo: RestaurantInfo;
@@ -162,13 +163,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all');
   const [orderSearch, setOrderSearch] = useState('');
 
-  // Live Cloud Database Users & Activity Logs State
+  // Live Cloud Database Users & Activity Logs State (Super Admin View)
   const [dbUsers, setDbUsers] = useState<FirestoreUserProfile[]>([]);
   const [dbLogs, setDbLogs] = useState<UserLogRecord[]>([]);
+  const [allStores, setAllStores] = useState<TenantRestaurantInfo[]>([]);
   const [isLoadingDb, setIsLoadingDb] = useState<boolean>(false);
   const [userSearchQuery, setUserSearchQuery] = useState<string>('');
   const [userProviderFilter, setUserProviderFilter] = useState<string>('all');
-  const [userViewSubTab, setUserViewSubTab] = useState<'accounts' | 'logs'>('accounts');
+  const [userViewSubTab, setUserViewSubTab] = useState<'stores' | 'accounts' | 'logs'>('stores');
 
   // Derived unique restaurant customers from this restaurant's orders
   const storeCustomers = useMemo(() => {
@@ -210,17 +212,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return Array.from(customerMap.values());
   }, [orders]);
 
-  // Fetch Live Database Users & Logs from Firestore (Super Admin only)
+  // Fetch Live Database Users, Logs & All Platform Stores from Firestore (Super Admin only)
   const loadDatabaseUsersAndLogs = async () => {
     if (!isSuperAdmin) return;
     setIsLoadingDb(true);
     try {
-      const [fetchedUsers, fetchedLogs] = await Promise.all([
+      const [fetchedUsers, fetchedLogs, fetchedStores] = await Promise.all([
         fetchAllUsersFromFirestore(),
-        fetchAllUserLogsFromFirestore()
+        fetchAllUserLogsFromFirestore(),
+        getAllRestaurants()
       ]);
       setDbUsers(fetchedUsers);
       setDbLogs(fetchedLogs);
+      setAllStores(fetchedStores);
     } catch (e) {
       console.warn('Error loading Firestore database records:', e);
     } finally {
@@ -1629,6 +1633,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 {/* Metrics Row */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Registered Stores &amp; Cafes</p>
+                    <p className="text-2xl font-black text-orange-600 mt-1">{allStores.length}</p>
+                    <p className="text-[11px] text-orange-600 font-semibold mt-1">Live Multi-Tenant Outlets</p>
+                  </div>
+
+                  <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs">
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Registered Accounts</p>
                     <p className="text-2xl font-black text-slate-900 mt-1">{dbUsers.length}</p>
                     <p className="text-[11px] text-emerald-600 font-semibold mt-1">✓ Synced in Firestore Database</p>
@@ -1647,24 +1657,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <p className="text-2xl font-black text-slate-900 mt-1">{dbLogs.length}</p>
                     <p className="text-[11px] text-cyan-600 font-semibold mt-1">Real-time authentication events</p>
                   </div>
-
-                  <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Database Status</p>
-                    <div className="flex items-center gap-2 mt-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
-                      <span className="text-sm font-black text-slate-900">Firestore Connected</span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-0.5">256-bit encrypted persistence</p>
-                  </div>
                 </div>
 
-                {/* Sub-Tabs: Accounts Directory vs Activity Logs */}
+                {/* Sub-Tabs: Stores vs Accounts vs Activity Logs */}
                 <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-6">
                   
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
                     
                     {/* Switcher */}
-                    <div className="flex items-center p-1 bg-slate-100 rounded-2xl text-xs font-bold">
+                    <div className="flex items-center p-1 bg-slate-100 rounded-2xl text-xs font-bold flex-wrap gap-1">
+                      <button
+                        onClick={() => setUserViewSubTab('stores')}
+                        className={`px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
+                          userViewSubTab === 'stores' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <Store className="w-3.5 h-3.5 text-orange-500" />
+                        <span>Registered Stores &amp; Cafes ({allStores.length})</span>
+                      </button>
                       <button
                         onClick={() => setUserViewSubTab('accounts')}
                         className={`px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
@@ -1672,7 +1682,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         }`}
                       >
                         <Users className="w-3.5 h-3.5 text-amber-600" />
-                        <span>Registered Accounts Directory ({dbUsers.length})</span>
+                        <span>All Platform Users ({dbUsers.length})</span>
                       </button>
                       <button
                         onClick={() => setUserViewSubTab('logs')}
@@ -1681,7 +1691,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         }`}
                       >
                         <Activity className="w-3.5 h-3.5 text-cyan-600" />
-                        <span>Live Audit Logs Stream ({dbLogs.length})</span>
+                        <span>Live Audit Logs ({dbLogs.length})</span>
                       </button>
                     </div>
 
@@ -1691,26 +1701,103 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <input
                           type="text"
-                          placeholder="Search name, email, or ID..."
+                          placeholder="Search stores, users, or logs..."
                           value={userSearchQuery}
                           onChange={(e) => setUserSearchQuery(e.target.value)}
                           className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
                         />
                       </div>
-
-                      <select
-                        value={userProviderFilter}
-                        onChange={(e) => setUserProviderFilter(e.target.value)}
-                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none"
-                      >
-                        <option value="all">All Providers</option>
-                        <option value="google">Google Accounts</option>
-                        <option value="password">Email &amp; Password</option>
-                        <option value="phone">Phone OTP</option>
-                      </select>
                     </div>
 
                   </div>
+
+                  {/* VIEW 1: REGISTERED RESTAURANTS & CAFES DIRECTORY */}
+                  {userViewSubTab === 'stores' && (
+                    <div className="space-y-4">
+                      {allStores.length === 0 && !isLoadingDb ? (
+                        <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200 space-y-2">
+                          <Store className="w-8 h-8 text-slate-300 mx-auto" />
+                          <p className="font-bold text-sm text-slate-700">No external restaurants registered yet</p>
+                          <p className="text-xs text-slate-400">When restaurant managers create their cafes via onboarding, they will automatically appear in this master directory.</p>
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                              <tr className="border-b border-slate-100 text-slate-400 font-bold uppercase text-[10px]">
+                                <th className="py-2.5 px-3">Restaurant &amp; Brand</th>
+                                <th className="py-2.5 px-3">Public Store Link</th>
+                                <th className="py-2.5 px-3">Manager / Owner UID</th>
+                                <th className="py-2.5 px-3">Hotline &amp; Address</th>
+                                <th className="py-2.5 px-3">Created On</th>
+                                <th className="py-2.5 px-3">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {allStores
+                                .filter(s => {
+                                  if (userSearchQuery.trim()) {
+                                    const q = userSearchQuery.toLowerCase();
+                                    return (
+                                      s.name?.toLowerCase().includes(q) ||
+                                      s.slug?.toLowerCase().includes(q) ||
+                                      s.ownerUid?.toLowerCase().includes(q)
+                                    );
+                                  }
+                                  return true;
+                                })
+                                .map((store) => (
+                                  <tr key={store.ownerUid} className="hover:bg-slate-50/80 transition-colors">
+                                    <td className="py-3 px-3">
+                                      <div className="flex items-center gap-2.5">
+                                        <div className="w-8 h-8 rounded-xl bg-orange-100 text-orange-700 font-black flex items-center justify-center text-xs">
+                                          {store.logoText || store.name?.slice(0, 2).toUpperCase()}
+                                        </div>
+                                        <div>
+                                          <p className="font-bold text-slate-900">{store.name}</p>
+                                          <p className="text-[10px] text-slate-400 truncate max-w-xs">{store.tagline}</p>
+                                        </div>
+                                      </div>
+                                    </td>
+
+                                    <td className="py-3 px-3">
+                                      <span className="font-mono text-orange-600 font-bold text-[11px] bg-orange-50 px-2 py-0.5 rounded-lg border border-orange-200">
+                                        /r/{store.slug}
+                                      </span>
+                                    </td>
+
+                                    <td className="py-3 px-3 font-mono text-slate-500 text-[10px]">
+                                      {store.ownerUid}
+                                    </td>
+
+                                    <td className="py-3 px-3 text-slate-600 text-[11px]">
+                                      <p className="font-medium text-slate-800">{store.hotline || '-'}</p>
+                                      <p className="text-[10px] text-slate-400 truncate max-w-xs">{store.address || '-'}</p>
+                                    </td>
+
+                                    <td className="py-3 px-3 text-slate-500 text-[11px]">
+                                      {store.createdAt ? new Date(store.createdAt).toLocaleDateString() : 'Active'}
+                                    </td>
+
+                                    <td className="py-3 px-3">
+                                      <a
+                                        href={`/r/${store.slug}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white font-bold text-[10px] rounded-lg transition-all"
+                                      >
+                                        <Eye className="w-3 h-3" />
+                                        <span>View Store</span>
+                                      </a>
+                                    </td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* VIEW A: REGISTERED USER ACCOUNTS DIRECTORY */}
                   {userViewSubTab === 'accounts' && (

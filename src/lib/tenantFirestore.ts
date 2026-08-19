@@ -244,14 +244,19 @@ export function subscribeToOrders(ownerUid: string, onUpdate: (orders: OrderReco
   });
 }
 
-// ========== USER HELPERS ==========
+// ========== ALL RESTAURANTS (SUPER ADMIN) ==========
 
 /**
- * Check if a user already has a restaurant set up.
+ * Load all registered restaurants on the platform (Super Admin view).
  */
-export async function getUserRestaurantSlug(uid: string): Promise<string | null> {
-  const userRef = doc(db, 'users', uid);
-  const snap = await getDoc(userRef);
-  if (!snap.exists()) return null;
-  return snap.data()?.restaurantSlug || null;
+export async function getAllRestaurants(): Promise<TenantRestaurantInfo[]> {
+  try {
+    const snap = await getDocs(collection(db, 'restaurants'));
+    const list: TenantRestaurantInfo[] = [];
+    snap.forEach(d => list.push(d.data() as TenantRestaurantInfo));
+    return list;
+  } catch (e) {
+    console.warn('Error fetching all restaurants:', e);
+    return [];
+  }
 }

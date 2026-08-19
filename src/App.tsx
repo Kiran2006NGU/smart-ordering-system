@@ -106,6 +106,7 @@ import { useRoute, navigate } from './lib/router';
 import { 
   getRestaurantByOwner, 
   getRestaurantBySlug, 
+  getAllRestaurants,
   getMenuItems, 
   getCoupons, 
   getOrders, 
@@ -359,7 +360,7 @@ export default function App() {
         return;
       }
 
-      // SCENARIO 2: Owner Dashboard (/dashboard)
+      // SCENARIO 2: Dashboard (/dashboard)
       if (routeInfo.route === 'dashboard') {
         if (!currentUser) {
           // If not logged in, we stay on landing or open login
@@ -376,6 +377,43 @@ export default function App() {
           return;
         }
 
+        // Super Admin is platform owner — direct access to Master CMS, no restaurant setup required!
+        if (currentUser.role === 'admin') {
+          setNeedsOnboarding(false);
+          setIsLoadingStore(true);
+          try {
+            const allRest = await getAllRestaurants();
+            if (allRest.length > 0) {
+              const firstRest = allRest[0];
+              setActiveOwnerUid(firstRest.ownerUid);
+              setActiveSlug(firstRest.slug);
+              setRestaurantInfo(firstRest);
+
+              const [loadedMenu, loadedCoupons, loadedOrders] = await Promise.all([
+                getMenuItems(firstRest.ownerUid),
+                getCoupons(firstRest.ownerUid),
+                getOrders(firstRest.ownerUid)
+              ]);
+              if (loadedMenu.length > 0) setMenuItems(loadedMenu);
+              if (loadedCoupons.length > 0) setCoupons(loadedCoupons);
+              if (loadedOrders.length > 0) setOrderHistory(loadedOrders);
+            } else {
+              setActiveSlug('smart-food-dine');
+              setRestaurantInfo(DEFAULT_RESTAURANT_INFO);
+              setMenuItems(MENU_ITEMS);
+              setCoupons(LUCKY_COUPONS);
+            }
+          } catch (e) {
+            console.warn('Error loading admin platform data:', e);
+            setActiveSlug('smart-food-dine');
+            setRestaurantInfo(DEFAULT_RESTAURANT_INFO);
+          } finally {
+            setIsLoadingStore(false);
+          }
+          return;
+        }
+
+        // Restaurant Manager — load their specific store or prompt onboarding
         setIsLoadingStore(true);
         try {
           const ownerRestaurant = await getRestaurantByOwner(currentUser.id);
@@ -396,12 +434,11 @@ export default function App() {
             if (loadedCoupons.length > 0) setCoupons(loadedCoupons);
             if (loadedOrders.length > 0) setOrderHistory(loadedOrders);
           } else {
-            // New owner needs onboarding
+            // New manager needs onboarding
             setNeedsOnboarding(true);
           }
         } catch (e) {
           console.warn('Error loading owner restaurant:', e);
-          // Allow fallback to onboarding or local
           setNeedsOnboarding(true);
         } finally {
           setIsLoadingStore(false);
@@ -888,8 +925,8 @@ export default function App() {
     );
   }
 
-  // 3. First-Time Owner Onboarding Wizard
-  if (needsOnboarding && currentUser && (routeInfo.route === 'dashboard' || currentTab === 'admin')) {
+  // 3. First-Time Manager Onboarding Wizard (Managers only, NEVER for Super Admin)
+  if (needsOnboarding && currentUser && currentUser.role === 'manager' && (routeInfo.route === 'dashboard' || currentTab === 'admin')) {
     return (
       <OnboardingWizard
         ownerUid={currentUser.id}
