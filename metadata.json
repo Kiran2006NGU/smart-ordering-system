@@ -1,0 +1,6 @@
+{
+  "name": "Smart Restaurant Ordering System",
+  "description": "Customizable modern smart restaurant ordering system & CMS featuring real-time brand and restaurant data editing, dynamic menu management, multi-role authentication (Google, Phone, Email, Admin), dynamic voice greetings, coupon games, and transparent billing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

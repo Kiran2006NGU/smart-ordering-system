@@ -1,0 +1,49 @@
+{
+  "entities": {
+    "User": {
+      "collection": "users",
+      "fields": {
+        "uid": { "type": "string", "required": true },
+        "email": { "type": "string", "required": true },
+        "displayName": { "type": "string", "required": false },
+        "photoURL": { "type": "string", "required": false },
+        "role": { "type": "string", "required": true, "default": "customer" },
+        "provider": { "type": "string", "required": true },
+        "phone": { "type": "string", "required": false },
+        "createdAt": { "type": "string", "required": true },
+        "lastLoginAt": { "type": "string", "required": true },
+        "totalOrders": { "type": "number", "required": false, "default": 0 },
+        "totalSpent": { "type": "number", "required": false, "default": 0 }
+      }
+    },
+    "UserLog": {
+      "collection": "user_logs",
+      "fields": {
+        "id": { "type": "string", "required": true },
+        "uid": { "type": "string", "required": true },
+        "email": { "type": "string", "required": true },
+        "displayName": { "type": "string", "required": false },
+        "action": { "type": "string", "required": true },
+        "provider": { "type": "string", "required": true },
+        "timestamp": { "type": "string", "required": true },
+        "details": { "type": "string", "required": false }
+      }
+    },
+    "Order": {
+      "collection": "orders",
+      "fields": {
+        "orderId": { "type": "string", "required": true },
+        "orderNumber": { "type": "string", "required": true },
+        "customer": { "type": "object", "required": true },
+        "items": { "type": "array", "required": true },
+        "originalTotal": { "type": "number", "required": true },
+        "discountAmount": { "type": "number", "required": true },
+        "finalTotal": { "type": "number", "required": true },
+        "paymentMethod": { "type": "string", "required": true },
+        "paymentStatus": { "type": "string", "required": true },
+        "orderStatus": { "type": "string", "required": true },
+        "createdAt": { "type": "string", "required": true }
+      }
+    }
+  }
+}
