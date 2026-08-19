@@ -46,7 +46,8 @@ import {
   OrderRecord, 
   OrderStatus,
   CategoryType,
-  SubCategoryType
+  SubCategoryType,
+  UserAccount
 } from '../types';
 import { FoodPhotoPickerModal } from './FoodPhotoPickerModal';
 import { matchRealFoodPhotos } from '../data/foodImageLibrary';
@@ -75,6 +76,7 @@ interface AdminDashboardProps {
   onClearOrders: () => void;
   onBackToStore: () => void;
   onOpenVoiceSettings?: () => void;
+  currentUser?: UserAccount | null;
 }
 
 type AdminTab = 'settings' | 'menu' | 'orders' | 'coupons' | 'analytics' | 'users';
@@ -96,8 +98,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onUpdateOrderStatus,
   onClearOrders,
   onBackToStore,
-  onOpenVoiceSettings
+  onOpenVoiceSettings,
+  currentUser
 }) => {
+  const isSuperAdmin = currentUser?.role === 'admin';
+  const isManager = currentUser?.role === 'manager';
   const [activeTab, setActiveTab] = useState<AdminTab>('settings');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -165,8 +170,49 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [userProviderFilter, setUserProviderFilter] = useState<string>('all');
   const [userViewSubTab, setUserViewSubTab] = useState<'accounts' | 'logs'>('accounts');
 
-  // Fetch Live Database Users & Logs from Firestore
+  // Derived unique restaurant customers from this restaurant's orders
+  const storeCustomers = useMemo(() => {
+    const customerMap = new Map<string, {
+      name: string;
+      mobile: string;
+      email?: string;
+      totalOrders: number;
+      totalSpent: number;
+      lastOrderAt: string;
+      lastOrderType: string;
+    }>();
+
+    orders.forEach(order => {
+      const key = order.customer.mobile || order.customer.email || order.customer.name;
+      if (!key) return;
+      
+      const existing = customerMap.get(key);
+      if (existing) {
+        existing.totalOrders += 1;
+        existing.totalSpent += order.finalTotal;
+        if (new Date(order.createdAt) > new Date(existing.lastOrderAt)) {
+          existing.lastOrderAt = order.createdAt;
+          existing.lastOrderType = order.customer.orderType;
+        }
+      } else {
+        customerMap.set(key, {
+          name: order.customer.name || 'Diner',
+          mobile: order.customer.mobile || '-',
+          email: order.customer.email || '',
+          totalOrders: 1,
+          totalSpent: order.finalTotal,
+          lastOrderAt: order.createdAt,
+          lastOrderType: order.customer.orderType
+        });
+      }
+    });
+
+    return Array.from(customerMap.values());
+  }, [orders]);
+
+  // Fetch Live Database Users & Logs from Firestore (Super Admin only)
   const loadDatabaseUsersAndLogs = async () => {
+    if (!isSuperAdmin) return;
     setIsLoadingDb(true);
     try {
       const [fetchedUsers, fetchedLogs] = await Promise.all([
@@ -184,14 +230,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Load database info on mount and tab switch
   useEffect(() => {
-    loadDatabaseUsersAndLogs();
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === 'users') {
+    if (isSuperAdmin) {
       loadDatabaseUsersAndLogs();
     }
-  }, [activeTab]);
+  }, [isSuperAdmin]);
+
+  useEffect(() => {
+    if (activeTab === 'users' && isSuperAdmin) {
+      loadDatabaseUsersAndLogs();
+    }
+  }, [activeTab, isSuperAdmin]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -353,20 +401,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       <header className="bg-slate-950 text-white border-b border-slate-800 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-red-600 to-amber-600 flex items-center justify-center font-black text-sm shadow-md">
-              ADMIN
+            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm shadow-md ${
+              isSuperAdmin ? 'bg-gradient-to-tr from-red-600 to-amber-600' : 'bg-gradient-to-tr from-orange-500 to-amber-500'
+            }`}>
+              {isSuperAdmin ? 'ADMIN' : 'HUB'}
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-base sm:text-lg font-black tracking-tight text-white">
-                  {restaurantInfo.name} CMS &amp; Hub
+                  {restaurantInfo.name} {isSuperAdmin ? 'Master CMS' : 'Manager Hub'}
                 </h1>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-600/30 text-red-300 border border-red-500/40 font-bold uppercase">
-                  Master Portal
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border ${
+                  isSuperAdmin 
+                    ? 'bg-red-600/30 text-red-300 border-red-500/40' 
+                    : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                }`}>
+                  {isSuperAdmin ? 'Master Portal' : 'Restaurant Manager'}
                 </span>
               </div>
               <p className="text-[11px] text-slate-400">
-                Manage Restaurant Data, Menu Catalog, Pricing, Orders, and Lucky Codes
+                {isSuperAdmin 
+                  ? 'Global Master Portal — Database Audit, Platform Users, System Analytics'
+                  : 'Manage your restaurant menu, pricing, live kitchen orders, and customer activity'}
               </p>
             </div>
           </div>
@@ -440,8 +496,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               activeTab === 'users' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
             }`}
           >
-            <Database className="w-4 h-4 text-emerald-400" />
-            <span>6. Live Users &amp; Auth Logs ({dbUsers.length || 'Cloud DB'})</span>
+            {isSuperAdmin ? (
+              <>
+                <Database className="w-4 h-4 text-emerald-400" />
+                <span>6. Live Database Users ({dbUsers.length || 'Cloud DB'})</span>
+              </>
+            ) : (
+              <>
+                <Users className="w-4 h-4 text-amber-400" />
+                <span>6. Restaurant Customers ({storeCustomers.length})</span>
+              </>
+            )}
           </button>
         </div>
       </header>
@@ -1415,317 +1480,423 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         )}
 
-        {/* TAB 6: LIVE DATABASE USERS & AUTH ACTIVITY LOGS */}
+        {/* TAB 6: CUSTOMERS (MANAGER VIEW) VS LIVE DATABASE AUDIT (SUPER ADMIN VIEW) */}
         {activeTab === 'users' && (
           <div className="space-y-6">
             
-            {/* Top Database Banner */}
-            <div className="bg-gradient-to-r from-slate-900 via-emerald-950 to-slate-900 text-white rounded-3xl p-6 border border-emerald-500/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-md">
-              <div className="flex items-center gap-3.5">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-500 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-lg">
-                  <Database className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-base text-white flex items-center gap-2">
-                    <span>Cloud Firestore Live User Accounts &amp; Auth Database</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold uppercase">
-                      Live Real-Time
-                    </span>
-                  </h3>
-                  <p className="text-xs text-slate-300">
-                    Audit real-time Google account logins, sign-ups, phone OTPs, customer profiles, and session activity logs.
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={loadDatabaseUsersAndLogs}
-                disabled={isLoadingDb}
-                className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
-              >
-                <RefreshCw className={`w-4 h-4 ${isLoadingDb ? 'animate-spin' : ''}`} />
-                <span>{isLoadingDb ? 'Syncing Firestore...' : 'Refresh Database'}</span>
-              </button>
-            </div>
-
-            {/* Metrics Row */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Registered Accounts</p>
-                <p className="text-2xl font-black text-slate-900 mt-1">{dbUsers.length}</p>
-                <p className="text-[11px] text-emerald-600 font-semibold mt-1">✓ Synced in Firestore Database</p>
-              </div>
-
-              <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Google Authenticated Users</p>
-                <p className="text-2xl font-black text-blue-600 mt-1">
-                  {dbUsers.filter(u => u.provider?.includes('google')).length}
-                </p>
-                <p className="text-[11px] text-blue-600 font-semibold mt-1">Verified Real Google Accounts</p>
-              </div>
-
-              <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Activity Audit Logs</p>
-                <p className="text-2xl font-black text-slate-900 mt-1">{dbLogs.length}</p>
-                <p className="text-[11px] text-cyan-600 font-semibold mt-1">Real-time authentication events</p>
-              </div>
-
-              <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Database Status</p>
-                <div className="flex items-center gap-2 mt-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
-                  <span className="text-sm font-black text-slate-900">Firestore Connected</span>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-0.5">256-bit encrypted persistence</p>
-              </div>
-            </div>
-
-            {/* Sub-Tabs: Accounts Directory vs Activity Logs */}
-            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-6">
-              
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
-                
-                {/* Switcher */}
-                <div className="flex items-center p-1 bg-slate-100 rounded-2xl text-xs font-bold">
-                  <button
-                    onClick={() => setUserViewSubTab('accounts')}
-                    className={`px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
-                      userViewSubTab === 'accounts' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    <Users className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Registered Accounts Directory ({dbUsers.length})</span>
-                  </button>
-                  <button
-                    onClick={() => setUserViewSubTab('logs')}
-                    className={`px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
-                      userViewSubTab === 'logs' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    <Activity className="w-3.5 h-3.5 text-cyan-600" />
-                    <span>Live Audit Logs Stream ({dbLogs.length})</span>
-                  </button>
+            {/* MANAGER VIEW: RESTAURANT-SCOPED CUSTOMERS ONLY */}
+            {!isSuperAdmin ? (
+              <div className="space-y-6">
+                {/* Manager Top Banner */}
+                <div className="bg-gradient-to-r from-slate-900 via-amber-950 to-slate-900 text-white rounded-3xl p-6 border border-amber-500/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-md">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-12 h-12 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-lg">
+                      <Users className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-base text-white flex items-center gap-2">
+                        <span>{restaurantInfo.name} Customer Directory</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold uppercase">
+                          Store Scope
+                        </span>
+                      </h3>
+                      <p className="text-xs text-slate-300">
+                        View customers who have logged in or ordered from your restaurant storefront.
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Filter and Search */}
-                <div className="flex items-center gap-3 w-full sm:w-auto">
-                  <div className="relative flex-1 sm:w-64">
-                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      placeholder="Search name, email, or ID..."
-                      value={userSearchQuery}
-                      onChange={(e) => setUserSearchQuery(e.target.value)}
-                      className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                    />
+                {/* Metrics Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Diners &amp; Customers</p>
+                    <p className="text-2xl font-black text-slate-900 mt-1">{storeCustomers.length}</p>
+                    <p className="text-[11px] text-emerald-600 font-semibold mt-1">Unique diners at this store</p>
                   </div>
 
-                  <select
-                    value={userProviderFilter}
-                    onChange={(e) => setUserProviderFilter(e.target.value)}
-                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none"
-                  >
-                    <option value="all">All Providers</option>
-                    <option value="google">Google Accounts</option>
-                    <option value="password">Email &amp; Password</option>
-                    <option value="phone">Phone OTP</option>
-                  </select>
+                  <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Store Orders</p>
+                    <p className="text-2xl font-black text-amber-600 mt-1">{orders.length}</p>
+                    <p className="text-[11px] text-amber-600 font-semibold mt-1">Lifetime orders placed</p>
+                  </div>
+
+                  <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Customer Revenue</p>
+                    <p className="text-2xl font-black text-emerald-600 mt-1">
+                      ₹{orders.reduce((sum, o) => sum + o.finalTotal, 0).toLocaleString()}
+                    </p>
+                    <p className="text-[11px] text-emerald-600 font-semibold mt-1">Generated from your menu</p>
+                  </div>
+
+                  <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Active Dine-In Guests</p>
+                    <p className="text-2xl font-black text-blue-600 mt-1">
+                      {storeCustomers.filter(c => c.lastOrderType === 'dine_in').length}
+                    </p>
+                    <p className="text-[11px] text-blue-600 font-semibold mt-1">Table dining customers</p>
+                  </div>
                 </div>
 
-              </div>
-
-              {/* VIEW A: REGISTERED USER ACCOUNTS DIRECTORY */}
-              {userViewSubTab === 'accounts' && (
-                <div className="space-y-4">
-                  {dbUsers.length === 0 && !isLoadingDb ? (
+                {/* Customer List Table */}
+                <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
+                  <h4 className="font-extrabold text-sm text-slate-900">Your Store's Customers</h4>
+                  {storeCustomers.length === 0 ? (
                     <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200 space-y-2">
                       <Users className="w-8 h-8 text-slate-300 mx-auto" />
-                      <p className="font-bold text-sm text-slate-700">No database user accounts found yet</p>
-                      <p className="text-xs text-slate-400">Sign in with Google, Phone OTP, or Email to see live profiles populate here!</p>
+                      <p className="font-bold text-sm text-slate-700">No customer orders yet</p>
+                      <p className="text-xs text-slate-400">Share your store link with customers to see them appear here as they order!</p>
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead>
-                          <tr className="border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
-                            <th className="py-3 px-3">User &amp; Profile</th>
-                            <th className="py-3 px-3">Auth Provider</th>
-                            <th className="py-3 px-3">Role</th>
-                            <th className="py-3 px-3">Registered On</th>
-                            <th className="py-3 px-3">Last Login</th>
-                            <th className="py-3 px-3">Orders &amp; Spent</th>
+                          <tr className="border-b border-slate-100 text-slate-400 font-bold uppercase text-[10px]">
+                            <th className="py-2.5 px-3">Customer</th>
+                            <th className="py-2.5 px-3">Mobile Contact</th>
+                            <th className="py-2.5 px-3">Total Orders</th>
+                            <th className="py-2.5 px-3">Total Spent</th>
+                            <th className="py-2.5 px-3">Last Order</th>
+                            <th className="py-2.5 px-3">Service Type</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {dbUsers
-                            .filter(user => {
-                              if (userProviderFilter !== 'all') {
-                                if (userProviderFilter === 'google' && !user.provider?.includes('google')) return false;
-                                if (userProviderFilter === 'password' && !user.provider?.includes('password')) return false;
-                                if (userProviderFilter === 'phone' && !user.provider?.includes('phone')) return false;
-                              }
-                              if (userSearchQuery.trim()) {
-                                const q = userSearchQuery.toLowerCase();
-                                return (
-                                  user.displayName?.toLowerCase().includes(q) ||
-                                  user.email?.toLowerCase().includes(q) ||
-                                  user.uid?.toLowerCase().includes(q)
-                                );
-                              }
-                              return true;
-                            })
-                            .map((user) => (
-                              <tr key={user.uid} className="hover:bg-slate-50/80 transition-colors">
-                                <td className="py-3 px-3">
-                                  <div className="flex items-center gap-3">
-                                    {user.photoURL ? (
-                                      <img 
-                                        src={user.photoURL} 
-                                        alt={user.displayName} 
-                                        className="w-9 h-9 rounded-full object-cover border border-slate-200"
-                                      />
-                                    ) : (
-                                      <div className="w-9 h-9 rounded-full bg-slate-900 text-amber-400 font-bold flex items-center justify-center">
-                                        {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
-                                      </div>
-                                    )}
-                                    <div>
-                                      <p className="font-bold text-slate-900">{user.displayName || 'Anonymous User'}</p>
-                                      <p className="text-[11px] text-slate-500">{user.email || 'No email attached'}</p>
-                                      <p className="text-[10px] text-slate-400 font-mono">UID: {user.uid.slice(0, 14)}...</p>
-                                    </div>
+                          {storeCustomers.map((cust, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                              <td className="py-3 px-3">
+                                <div className="flex items-center gap-2.5">
+                                  <div className="w-7 h-7 rounded-full bg-amber-100 text-amber-800 font-bold flex items-center justify-center text-xs">
+                                    {cust.name.slice(0, 1).toUpperCase()}
                                   </div>
-                                </td>
-
-                                <td className="py-3 px-3">
-                                  {user.provider?.includes('google') ? (
-                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 font-bold text-[11px] border border-blue-200">
-                                      <span className="text-xs">🌐</span>
-                                      <span>Google Auth</span>
-                                    </span>
-                                  ) : user.provider?.includes('phone') ? (
-                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[11px] border border-emerald-200">
-                                      <Smartphone className="w-3 h-3" />
-                                      <span>Phone OTP</span>
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 font-bold text-[11px] border border-indigo-200">
-                                      <Mail className="w-3 h-3" />
-                                      <span>Email / Pass</span>
-                                    </span>
-                                  )}
-                                </td>
-
-                                <td className="py-3 px-3">
-                                  {user.role === 'admin' ? (
-                                    <span className="px-2.5 py-0.5 rounded-full bg-red-100 text-red-700 font-black text-[10px] uppercase">
-                                      Admin Staff
-                                    </span>
-                                  ) : (
-                                    <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-bold text-[10px]">
-                                      Customer
-                                    </span>
-                                  )}
-                                </td>
-
-                                <td className="py-3 px-3 text-slate-600 text-[11px]">
-                                  {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Recent'}
-                                </td>
-
-                                <td className="py-3 px-3 text-slate-600 text-[11px]">
-                                  {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
-                                </td>
-
-                                <td className="py-3 px-3 font-bold text-slate-900">
-                                  <span>{user.totalOrders || 0} Orders</span>
-                                  <span className="text-slate-400 font-normal text-[11px] ml-1">
-                                    (₹{(user.totalSpent || 0).toLocaleString()})
-                                  </span>
-                                </td>
-                              </tr>
-                            ))}
+                                  <div>
+                                    <p className="font-bold text-slate-900">{cust.name}</p>
+                                    {cust.email && <p className="text-[10px] text-slate-400">{cust.email}</p>}
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-3 px-3 font-mono text-slate-700 font-semibold">{cust.mobile}</td>
+                              <td className="py-3 px-3 font-bold text-slate-900">{cust.totalOrders} orders</td>
+                              <td className="py-3 px-3 font-black text-emerald-600">₹{cust.totalSpent.toLocaleString()}</td>
+                              <td className="py-3 px-3 text-slate-500 text-[11px]">
+                                {new Date(cust.lastOrderAt).toLocaleDateString()}
+                              </td>
+                              <td className="py-3 px-3">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-slate-100 text-slate-700">
+                                  {cust.lastOrderType.replace('_', ' ')}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
                         </tbody>
                       </table>
                     </div>
                   )}
                 </div>
-              )}
-
-              {/* VIEW B: LIVE ACTIVITY & AUTH AUDIT LOGS */}
-              {userViewSubTab === 'logs' && (
-                <div className="space-y-3">
-                  {dbLogs.length === 0 && !isLoadingDb ? (
-                    <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200 space-y-2">
-                      <Activity className="w-8 h-8 text-slate-300 mx-auto" />
-                      <p className="font-bold text-sm text-slate-700">No activity logs recorded yet</p>
-                      <p className="text-xs text-slate-400">All user sign-ins, checkouts, and logouts stream directly into this audit trail.</p>
+              </div>
+            ) : (
+              /* SUPER ADMIN MASTER VIEW: FULL DATABASE & AUDIT LOGS */
+              <div className="space-y-6">
+                {/* Top Database Banner */}
+                <div className="bg-gradient-to-r from-slate-900 via-red-950 to-slate-900 text-white rounded-3xl p-6 border border-red-500/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-md">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-12 h-12 rounded-2xl bg-red-500 text-white flex items-center justify-center font-black shrink-0 shadow-lg">
+                      <Database className="w-6 h-6" />
                     </div>
-                  ) : (
-                    <div className="divide-y divide-slate-100 border border-slate-100 rounded-2xl overflow-hidden">
-                      {dbLogs
-                        .filter(log => {
-                          if (userSearchQuery.trim()) {
-                            const q = userSearchQuery.toLowerCase();
-                            return (
-                              log.displayName?.toLowerCase().includes(q) ||
-                              log.email?.toLowerCase().includes(q) ||
-                              log.action?.toLowerCase().includes(q) ||
-                              log.details?.toLowerCase().includes(q)
-                            );
-                          }
-                          return true;
-                        })
-                        .map((log) => (
-                          <div key={log.id} className="p-3.5 hover:bg-slate-50/90 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                            <div className="flex items-start sm:items-center gap-3">
-                              <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
-                                log.action === 'login' ? 'bg-blue-100 text-blue-700' :
-                                log.action === 'signup' ? 'bg-emerald-100 text-emerald-700' :
-                                log.action === 'order_placed' ? 'bg-amber-100 text-amber-800' :
-                                'bg-slate-100 text-slate-600'
-                              }`}>
-                                {log.action === 'login' ? <LogIn className="w-4 h-4" /> :
-                                 log.action === 'signup' ? <UserCheck className="w-4 h-4" /> :
-                                 log.action === 'order_placed' ? <ShoppingBag className="w-4 h-4" /> :
-                                 <Activity className="w-4 h-4" />}
-                              </div>
+                    <div>
+                      <h3 className="font-extrabold text-base text-white flex items-center gap-2">
+                        <span>Master Cloud Firestore User Accounts &amp; Auth Database</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/40 font-bold uppercase">
+                          Platform Owner Only
+                        </span>
+                      </h3>
+                      <p className="text-xs text-slate-300">
+                        Audit real-time Google account logins, sign-ups, phone OTPs, customer profiles, and session activity logs.
+                      </p>
+                    </div>
+                  </div>
 
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-bold text-slate-900">{log.displayName || 'Customer'}</span>
-                                  <span className="text-slate-400 text-[11px]">&lt;{log.email}&gt;</span>
-                                  <span className={`px-2 py-0.2 rounded-md font-bold text-[10px] uppercase ${
-                                    log.action === 'login' ? 'bg-blue-50 text-blue-700' :
-                                    log.action === 'signup' ? 'bg-emerald-50 text-emerald-700' :
-                                    log.action === 'order_placed' ? 'bg-amber-50 text-amber-700' :
-                                    'bg-slate-100 text-slate-600'
-                                  }`}>
-                                    {log.action.replace('_', ' ')}
-                                  </span>
-                                </div>
-                                <p className="text-[11px] text-slate-600 mt-0.5 font-medium">
-                                  {log.details || `Authenticated via ${log.provider}`}
-                                </p>
-                              </div>
-                            </div>
+                  <button
+                    type="button"
+                    onClick={loadDatabaseUsersAndLogs}
+                    disabled={isLoadingDb}
+                    className="px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isLoadingDb ? 'animate-spin' : ''}`} />
+                    <span>{isLoadingDb ? 'Syncing Firestore...' : 'Refresh Master Database'}</span>
+                  </button>
+                </div>
 
-                            <div className="text-right shrink-0">
-                              <p className="text-[11px] font-bold text-slate-700">
-                                {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                              </p>
-                              <p className="text-[10px] text-slate-400">
-                                {new Date(log.timestamp).toLocaleDateString()}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
+                {/* Metrics Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Registered Accounts</p>
+                    <p className="text-2xl font-black text-slate-900 mt-1">{dbUsers.length}</p>
+                    <p className="text-[11px] text-emerald-600 font-semibold mt-1">✓ Synced in Firestore Database</p>
+                  </div>
+
+                  <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Google Authenticated Users</p>
+                    <p className="text-2xl font-black text-blue-600 mt-1">
+                      {dbUsers.filter(u => u.provider?.includes('google')).length}
+                    </p>
+                    <p className="text-[11px] text-blue-600 font-semibold mt-1">Verified Real Google Accounts</p>
+                  </div>
+
+                  <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Activity Audit Logs</p>
+                    <p className="text-2xl font-black text-slate-900 mt-1">{dbLogs.length}</p>
+                    <p className="text-[11px] text-cyan-600 font-semibold mt-1">Real-time authentication events</p>
+                  </div>
+
+                  <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Database Status</p>
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
+                      <span className="text-sm font-black text-slate-900">Firestore Connected</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">256-bit encrypted persistence</p>
+                  </div>
+                </div>
+
+                {/* Sub-Tabs: Accounts Directory vs Activity Logs */}
+                <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-6">
+                  
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                    
+                    {/* Switcher */}
+                    <div className="flex items-center p-1 bg-slate-100 rounded-2xl text-xs font-bold">
+                      <button
+                        onClick={() => setUserViewSubTab('accounts')}
+                        className={`px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
+                          userViewSubTab === 'accounts' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <Users className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Registered Accounts Directory ({dbUsers.length})</span>
+                      </button>
+                      <button
+                        onClick={() => setUserViewSubTab('logs')}
+                        className={`px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
+                          userViewSubTab === 'logs' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <Activity className="w-3.5 h-3.5 text-cyan-600" />
+                        <span>Live Audit Logs Stream ({dbLogs.length})</span>
+                      </button>
+                    </div>
+
+                    {/* Filter and Search */}
+                    <div className="flex items-center gap-3 w-full sm:w-auto">
+                      <div className="relative flex-1 sm:w-64">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Search name, email, or ID..."
+                          value={userSearchQuery}
+                          onChange={(e) => setUserSearchQuery(e.target.value)}
+                          className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <select
+                        value={userProviderFilter}
+                        onChange={(e) => setUserProviderFilter(e.target.value)}
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none"
+                      >
+                        <option value="all">All Providers</option>
+                        <option value="google">Google Accounts</option>
+                        <option value="password">Email &amp; Password</option>
+                        <option value="phone">Phone OTP</option>
+                      </select>
+                    </div>
+
+                  </div>
+
+                  {/* VIEW A: REGISTERED USER ACCOUNTS DIRECTORY */}
+                  {userViewSubTab === 'accounts' && (
+                    <div className="space-y-4">
+                      {dbUsers.length === 0 && !isLoadingDb ? (
+                        <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200 space-y-2">
+                          <Users className="w-8 h-8 text-slate-300 mx-auto" />
+                          <p className="font-bold text-sm text-slate-700">No database user accounts found yet</p>
+                          <p className="text-xs text-slate-400">Sign in with Google, Phone OTP, or Email to see live profiles populate here!</p>
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                              <tr className="border-b border-slate-100 text-slate-400 font-bold uppercase text-[10px]">
+                                <th className="py-2.5 px-3">Master User Profile</th>
+                                <th className="py-2.5 px-3">Auth Method</th>
+                                <th className="py-2.5 px-3">System Role</th>
+                                <th className="py-2.5 px-3">Created At</th>
+                                <th className="py-2.5 px-3">Last Active</th>
+                                <th className="py-2.5 px-3">Orders &amp; Spent</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {dbUsers
+                                .filter(u => {
+                                  if (userProviderFilter !== 'all' && !u.provider?.includes(userProviderFilter)) return false;
+                                  if (userSearchQuery.trim()) {
+                                    const q = userSearchQuery.toLowerCase();
+                                    return (
+                                      u.displayName?.toLowerCase().includes(q) ||
+                                      u.email?.toLowerCase().includes(q) ||
+                                      u.uid?.toLowerCase().includes(q)
+                                    );
+                                  }
+                                  return true;
+                                })
+                                .map((user) => (
+                                  <tr key={user.uid} className="hover:bg-slate-50/80 transition-colors">
+                                    <td className="py-3 px-3">
+                                      <div className="flex items-center gap-2.5">
+                                        <img
+                                          src={user.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.uid}`}
+                                          alt={user.displayName}
+                                          className="w-8 h-8 rounded-full border border-slate-200 object-cover"
+                                        />
+                                        <div>
+                                          <p className="font-bold text-slate-900">{user.displayName || 'Anonymous User'}</p>
+                                          <p className="text-[10px] text-slate-400 font-mono">{user.email || user.phone || user.uid}</p>
+                                        </div>
+                                      </div>
+                                    </td>
+
+                                    <td className="py-3 px-3">
+                                      {user.provider?.includes('google') ? (
+                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 font-bold text-[11px] border border-blue-200">
+                                          <ShieldCheck className="w-3 h-3 text-blue-600" />
+                                          <span>Google Auth</span>
+                                        </span>
+                                      ) : user.provider?.includes('phone') ? (
+                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[11px] border border-emerald-200">
+                                          <Smartphone className="w-3 h-3" />
+                                          <span>Phone OTP</span>
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 font-bold text-[11px] border border-indigo-200">
+                                          <Mail className="w-3 h-3" />
+                                          <span>Email / Pass</span>
+                                        </span>
+                                      )}
+                                    </td>
+
+                                    <td className="py-3 px-3">
+                                      {user.role === 'admin' ? (
+                                        <span className="px-2.5 py-0.5 rounded-full bg-red-100 text-red-700 font-black text-[10px] uppercase">
+                                          Super Admin
+                                        </span>
+                                      ) : user.role === 'manager' ? (
+                                        <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold text-[10px] uppercase">
+                                          Manager
+                                        </span>
+                                      ) : (
+                                        <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-bold text-[10px]">
+                                          Customer
+                                        </span>
+                                      )}
+                                    </td>
+
+                                    <td className="py-3 px-3 text-slate-600 text-[11px]">
+                                      {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Recent'}
+                                    </td>
+
+                                    <td className="py-3 px-3 text-slate-600 text-[11px]">
+                                      {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
+                                    </td>
+
+                                    <td className="py-3 px-3 font-bold text-slate-900">
+                                      <span>{user.totalOrders || 0} Orders</span>
+                                      <span className="text-slate-400 font-normal text-[11px] ml-1">
+                                        (₹{(user.totalSpent || 0).toLocaleString()})
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
-              )}
 
-            </div>
+                  {/* VIEW B: LIVE ACTIVITY & AUTH AUDIT LOGS */}
+                  {userViewSubTab === 'logs' && (
+                    <div className="space-y-3">
+                      {dbLogs.length === 0 && !isLoadingDb ? (
+                        <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200 space-y-2">
+                          <Activity className="w-8 h-8 text-slate-300 mx-auto" />
+                          <p className="font-bold text-sm text-slate-700">No activity logs recorded yet</p>
+                          <p className="text-xs text-slate-400">All user sign-ins, checkouts, and logouts stream directly into this audit trail.</p>
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-slate-100 border border-slate-100 rounded-2xl overflow-hidden">
+                          {dbLogs
+                            .filter(log => {
+                              if (userSearchQuery.trim()) {
+                                const q = userSearchQuery.toLowerCase();
+                                return (
+                                  log.displayName?.toLowerCase().includes(q) ||
+                                  log.email?.toLowerCase().includes(q) ||
+                                  log.action?.toLowerCase().includes(q) ||
+                                  log.details?.toLowerCase().includes(q)
+                                );
+                              }
+                              return true;
+                            })
+                            .map((log) => (
+                              <div key={log.id} className="p-3.5 hover:bg-slate-50/90 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                                <div className="flex items-start sm:items-center gap-3">
+                                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
+                                    log.action === 'login' ? 'bg-blue-100 text-blue-700' :
+                                    log.action === 'signup' ? 'bg-emerald-100 text-emerald-700' :
+                                    log.action === 'order_placed' ? 'bg-amber-100 text-amber-800' :
+                                    'bg-slate-100 text-slate-600'
+                                  }`}>
+                                    {log.action === 'login' ? <LogIn className="w-4 h-4" /> :
+                                     log.action === 'signup' ? <UserCheck className="w-4 h-4" /> :
+                                     log.action === 'order_placed' ? <ShoppingBag className="w-4 h-4" /> :
+                                     <Activity className="w-4 h-4" />}
+                                  </div>
+
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-bold text-slate-900">{log.displayName || 'Customer'}</span>
+                                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                                        log.action === 'signup' ? 'bg-emerald-100 text-emerald-700' :
+                                        log.action === 'login' ? 'bg-blue-100 text-blue-700' :
+                                        log.action === 'order_placed' ? 'bg-amber-100 text-amber-800' :
+                                        'bg-slate-100 text-slate-700'
+                                      }`}>
+                                        {log.action?.replace('_', ' ')}
+                                      </span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-600 mt-0.5 font-medium">
+                                      {log.details || `Authenticated via ${log.provider}`}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="text-right shrink-0">
+                                  <p className="text-[11px] font-bold text-slate-700">
+                                    {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                  </p>
+                                  <p className="text-[10px] text-slate-400">
+                                    {new Date(log.timestamp).toLocaleDateString()}
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                </div>
+              </div>
+            )}
 
           </div>
         )}

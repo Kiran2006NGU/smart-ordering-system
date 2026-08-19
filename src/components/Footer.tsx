@@ -10,20 +10,22 @@ import {
   Clock,
   Shield
 } from 'lucide-react';
-import { RestaurantInfo } from '../types';
+import { RestaurantInfo, UserAccount } from '../types';
 
 interface FooterProps {
   restaurantInfo: RestaurantInfo;
   onOpenLuckyModal: () => void;
   onExploreMenu: () => void;
   onOpenAdmin: () => void;
+  currentUser?: UserAccount | null;
 }
 
 export const Footer: React.FC<FooterProps> = ({ 
   restaurantInfo, 
   onOpenLuckyModal, 
   onExploreMenu,
-  onOpenAdmin
+  onOpenAdmin,
+  currentUser
 }) => {
   return (
     <footer className="bg-slate-950 text-slate-400 text-xs border-t border-slate-900 mt-16">
@@ -73,12 +75,14 @@ export const Footer: React.FC<FooterProps> = ({
                   <span>🎁 Spin Lucky Draw (101E - 105E)</span>
                 </button>
               </li>
-              <li>
-                <button onClick={onOpenAdmin} className="text-red-400 hover:text-red-300 font-bold flex items-center gap-1 cursor-pointer">
-                  <Shield className="w-3.5 h-3.5" />
-                  <span>Admin &amp; Store CMS Portal</span>
-                </button>
-              </li>
+              {(currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
+                <li>
+                  <button onClick={onOpenAdmin} className="text-red-400 hover:text-red-300 font-bold flex items-center gap-1 cursor-pointer">
+                    <Shield className="w-3.5 h-3.5" />
+                    <span>{currentUser.role === 'admin' ? 'Master Admin CMS' : 'Manager Dashboard'}</span>
+                  </button>
+                </li>
+              )}
             </ul>
           </div>
 

@@ -135,7 +135,7 @@ export interface UserAccount {
   email: string;
   mobile: string;
   avatar?: string;
-  role: 'customer' | 'admin' | 'staff';
+  role: 'customer' | 'manager' | 'admin' | 'staff';
   loginMethod: 'google' | 'otp' | 'email' | 'admin';
   loyaltyPoints: number;
   address?: string;

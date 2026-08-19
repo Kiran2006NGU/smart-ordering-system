@@ -70,26 +70,43 @@ export interface FirestoreUserProfile {
   email: string;
   displayName: string;
   photoURL?: string;
-  role: 'customer' | 'admin';
+  role: 'customer' | 'manager' | 'admin';
   provider: string;
   phone?: string;
   createdAt: string;
   lastLoginAt: string;
   totalOrders?: number;
   totalSpent?: number;
+  restaurantSlug?: string;
 }
 
 // 1. Sign In With Real Google Account
-export async function signInWithGoogle(): Promise<{ user: UserAccount; isNewUser: boolean }> {
+export async function signInWithGoogle(requestedRole: 'customer' | 'manager' = 'customer'): Promise<{ user: UserAccount; isNewUser: boolean }> {
   try {
     const result = await signInWithPopup(auth, googleProvider);
     const fbUser = result.user;
     
     const isNewUser = (result as any)._tokenResponse?.isNewUser ?? false;
-    const userRole = fbUser.email && (
-      fbUser.email.includes('admin') || 
-      fbUser.email === 'kirankumarbehera2006@gmail.com'
-    ) ? 'admin' : 'customer';
+    
+    // Check if user is Super Admin
+    let userRole: 'customer' | 'manager' | 'admin' = 'customer';
+    if (fbUser.email && (fbUser.email === 'kirankumarbehera2006@gmail.com' || fbUser.email === 'admin@smartdine.com')) {
+      userRole = 'admin';
+    } else {
+      // Check if existing profile in Firestore has a saved role
+      try {
+        const userDocRef = doc(db, 'users', fbUser.uid);
+        const snap = await getDoc(userDocRef);
+        if (snap.exists()) {
+          const data = snap.data() as FirestoreUserProfile;
+          if (data.role) userRole = data.role;
+        } else {
+          userRole = requestedRole;
+        }
+      } catch (e) {
+        userRole = requestedRole;
+      }
+    }
 
     const userAccount: UserAccount = {
       id: fbUser.uid,
@@ -113,11 +130,18 @@ export async function signInWithGoogle(): Promise<{ user: UserAccount; isNewUser
 }
 
 // 2. Sign Up with Email & Password
-export async function signUpWithEmail(email: string, pass: string, displayName: string): Promise<UserAccount> {
+export async function signUpWithEmail(
+  email: string, 
+  pass: string, 
+  displayName: string,
+  requestedRole: 'customer' | 'manager' = 'customer'
+): Promise<UserAccount> {
   const result = await createUserWithEmailAndPassword(auth, email, pass);
   const fbUser = result.user;
 
-  const userRole = email.includes('admin') || email === 'kirankumarbehera2006@gmail.com' ? 'admin' : 'customer';
+  const userRole: 'customer' | 'manager' | 'admin' = (
+    email === 'kirankumarbehera2006@gmail.com' || email === 'admin@smartdine.com'
+  ) ? 'admin' : requestedRole;
 
   const userAccount: UserAccount = {
     id: fbUser.uid,
@@ -140,7 +164,9 @@ export async function signInWithEmail(email: string, pass: string): Promise<User
   const fbUser = result.user;
 
   // Retrieve existing user profile from Firestore if available
-  let userRole: 'customer' | 'admin' = email.includes('admin') || email === 'kirankumarbehera2006@gmail.com' ? 'admin' : 'customer';
+  let userRole: 'customer' | 'manager' | 'admin' = (
+    email === 'kirankumarbehera2006@gmail.com' || email === 'admin@smartdine.com'
+  ) ? 'admin' : 'customer';
   let displayName = email.split('@')[0];
   let photo = `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`;
 

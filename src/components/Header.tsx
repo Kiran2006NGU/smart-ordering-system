@@ -190,28 +190,26 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Action buttons */}
           <div className="flex items-center gap-2 sm:gap-3">
             
-            {/* Admin CMS Access Button (shown for owner/admin mode, or subtle for public store) */}
-            {!isPublicStore ? (
+            {/* Role-Guarded Dashboard Button */}
+            {currentUser?.role === 'admin' ? (
               <button
                 id="admin-dashboard-btn"
                 onClick={onOpenAdmin}
-                title="Open Admin CMS & Settings"
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  isAdmin 
-                    ? 'bg-red-600 hover:bg-red-700 text-white shadow-sm'
-                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
-                }`}
+                title="Master Platform Admin CMS"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-700 text-white shadow-sm transition-all cursor-pointer"
               >
-                <Shield className={`w-3.5 h-3.5 ${isAdmin ? 'text-white' : 'text-red-600'}`} />
-                <span className="hidden sm:inline">{isAdmin ? 'Admin CMS' : 'Admin'}</span>
+                <Shield className="w-3.5 h-3.5 text-white" />
+                <span className="hidden sm:inline">Master Admin</span>
               </button>
-            ) : isAdmin ? (
+            ) : currentUser?.role === 'manager' ? (
               <button
+                id="manager-dashboard-btn"
                 onClick={onOpenAdmin}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 transition-all cursor-pointer"
+                title="Restaurant Manager Dashboard"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 text-white shadow-sm transition-all cursor-pointer"
               >
-                <Store className="w-3.5 h-3.5 text-orange-400" />
-                <span className="hidden sm:inline">Owner Dashboard</span>
+                <Store className="w-3.5 h-3.5 text-white" />
+                <span className="hidden sm:inline">Manager Hub</span>
               </button>
             ) : null}
 

@@ -270,13 +270,29 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser: FirebaseUser | null) => {
       if (fbUser) {
+        const isMaster = fbUser.email === 'kirankumarbehera2006@gmail.com' || fbUser.email === 'admin@smartdine.com';
+        
+        let determinedRole: 'customer' | 'manager' | 'admin' = isMaster ? 'admin' : 'customer';
+
+        // Check if there is an existing restaurant owned by this user
+        if (!isMaster) {
+          try {
+            const existingRest = await getRestaurantByOwner(fbUser.uid);
+            if (existingRest) {
+              determinedRole = 'manager';
+            }
+          } catch (e) {
+            console.warn('Error checking manager ownership on login:', e);
+          }
+        }
+
         const userAccount: UserAccount = {
           id: fbUser.uid,
-          name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Owner',
+          name: fbUser.displayName || fbUser.email?.split('@')[0] || 'User',
           email: fbUser.email || '',
           mobile: fbUser.phoneNumber || '',
           avatar: fbUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${fbUser.uid}`,
-          role: 'admin',
+          role: determinedRole,
           loginMethod: fbUser.providerData[0]?.providerId === 'google.com' ? 'google' : 'email',
           loyaltyPoints: 300
         };
@@ -347,6 +363,16 @@ export default function App() {
       if (routeInfo.route === 'dashboard') {
         if (!currentUser) {
           // If not logged in, we stay on landing or open login
+          return;
+        }
+
+        if (currentUser.role === 'customer') {
+          // Customers do not have dashboard access
+          if (activeSlug) {
+            navigate(`/r/${activeSlug}`);
+          } else {
+            navigate('/');
+          }
           return;
         }
 
@@ -896,7 +922,14 @@ export default function App() {
           restaurantInfo={restaurantInfo}
           onLoginSuccess={(user) => {
             setCurrentUser(user);
-            navigate('/dashboard');
+            if (user.role === 'admin' || user.role === 'manager') {
+              navigate('/dashboard');
+            } else {
+              setIsAuthModalOpen(false);
+              if (activeSlug) {
+                navigate(`/r/${activeSlug}`);
+              }
+            }
           }}
           onLogout={() => {
             setCurrentUser(null);
@@ -914,8 +947,8 @@ export default function App() {
     <ErrorBoundary>
       <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-orange-500 selection:text-white">
         
-        {/* If in Admin Tab, render the full-screen Admin CMS Dashboard */}
-        {currentTab === 'admin' ? (
+        {/* If in Admin Tab and user is not a customer, render the full-screen Admin CMS Dashboard */}
+        {currentTab === 'admin' && currentUser?.role !== 'customer' ? (
           <AdminDashboard
             restaurantInfo={restaurantInfo}
             restaurantSlug={activeSlug || 'smart-food-dine'}
@@ -934,6 +967,7 @@ export default function App() {
             onClearOrders={handleClearOrders}
             onBackToStore={() => setCurrentTab('home')}
             onOpenVoiceSettings={() => setIsVoiceModalOpen(true)}
+            currentUser={currentUser}
           />
         ) : (
           <>
@@ -1155,7 +1189,14 @@ export default function App() {
                 setCurrentTab('menu');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              onOpenAdmin={() => setCurrentTab('admin')}
+              onOpenAdmin={() => {
+                if (currentUser?.role === 'admin' || currentUser?.role === 'manager') {
+                  setCurrentTab('admin');
+                } else {
+                  setIsAuthModalOpen(true);
+                }
+              }}
+              currentUser={currentUser}
             />
           </>
         )}
@@ -1263,8 +1304,10 @@ export default function App() {
           restaurantInfo={restaurantInfo}
           onLoginSuccess={(user) => {
             setCurrentUser(user);
-            if (user.role === 'admin') {
+            if (user.role === 'admin' || user.role === 'manager') {
               navigate('/dashboard');
+            } else {
+              setIsAuthModalOpen(false);
             }
           }}
           onLogout={() => {

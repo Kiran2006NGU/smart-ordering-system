@@ -58,7 +58,7 @@ export async function createRestaurant(
   const userRef = doc(db, 'users', ownerUid);
   batch.set(userRef, {
     restaurantSlug: slug,
-    role: 'admin',
+    role: 'manager',
     lastLoginAt: new Date().toISOString()
   }, { merge: true });
 
