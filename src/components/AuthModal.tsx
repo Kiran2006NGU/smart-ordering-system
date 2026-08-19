@@ -66,7 +66,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [otpTimer, setOtpTimer] = useState(30);
 
   // Super Admin Master Credentials
-  const [adminEmail, setAdminEmail] = useState('kirankumarbehera2006@gmail.com');
+  const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
 
   // Status & Feedback
@@ -712,7 +712,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       type="email"
                       value={adminEmail}
                       onChange={(e) => setAdminEmail(e.target.value)}
-                      placeholder="kirankumarbehera2006@gmail.com"
+                      placeholder="Enter master admin email"
                       className="w-full pl-9 pr-3 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:border-red-500"
                     />
                   </div>
